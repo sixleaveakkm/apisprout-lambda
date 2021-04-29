@@ -1,3 +1,23 @@
+# apisprout-lambda
+A fork from apisprout for AWS Lambda.
+
+- Add swagger file from s3 backend if file name starts with `s3://`, e.g. `s3://foo/bar.yaml`
+- Add string env parameter "file" as a fallback of argument parameter
+- Add bool env parameter 'lambda' to run in lambda proxy mode so could be used for API Gateway and ALB (Attribute Multi value headers must be set to `Enabled` in target group).
+
+## Lambda setup
+1. Without swagger file
+   Zip binary file add upload to AWS. Set following environment variables. 
+   For `SPROUT_FILE` set to some accessible location, or use a s3 location as following.  
+   ![img.png](img.png)
+
+2. With swagger file 
+   When making zip file for lambda, add swagger to the zip file. 
+   Then you could set `SPROUT_FILE` to the location.
+
+
+# apisprout
+
 <img src="https://user-images.githubusercontent.com/106826/43119494-78be9224-8ecb-11e8-9d1a-9fc6f3014b91.png" width="300" alt="API Sprout"/>
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/danielgtaylor/apisprout)](https://goreportcard.com/report/github.com/danielgtaylor/apisprout) [![Build Status](https://travis-ci.org/danielgtaylor/apisprout.svg?branch=master)](https://travis-ci.org/danielgtaylor/apisprout) [![GitHub tag (latest SemVer)](https://img.shields.io/github/tag/danielgtaylor/apisprout.svg)](https://github.com/danielgtaylor/apisprout/releases) [![Docker Pulls](https://img.shields.io/docker/pulls/danielgtaylor/apisprout.svg)](https://hub.docker.com/r/danielgtaylor/apisprout/)

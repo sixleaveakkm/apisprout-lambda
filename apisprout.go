@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akrylysov/algnhsa"
 	"github.com/fsnotify/fsnotify"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -129,7 +130,7 @@ func main() {
 	root := &cobra.Command{
 		Use:     fmt.Sprintf("%s [flags] FILE", cmd),
 		Version: GitSummary,
-		Args:    cobra.MinimumNArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		Run:     server,
 		Example: fmt.Sprintf("  # Basic usage\n  %s openapi.yaml\n\n  # Validate server name and use base path\n  %s --validate-server openapi.yaml\n\n  # Fetch API via HTTP with custom auth header\n  %s -H 'Authorization: abc123' http://example.com/openapi.yaml", cmd, cmd, cmd),
 	}
@@ -147,7 +148,8 @@ func main() {
 	addParameter(flags, "https", "", false, "Use HTTPS instead of HTTP")
 	addParameter(flags, "public-key", "", "", "Public key for HTTPS, use with --https")
 	addParameter(flags, "private-key", "", "", "Private key for HTTPS, use with --https")
-
+	addParameter(flags, "file", "", "", "FILE path given from env, if not present in argument")
+	addParameter(flags, "lambda", "", false, "Run in AWS lambda proxy mode.")
 	// Run the app!
 	root.Execute()
 }
@@ -602,13 +604,18 @@ var handler = func(rr *RefreshableRouter) http.Handler {
 func server(cmd *cobra.Command, args []string) {
 	var swagger *openapi3.Swagger
 	rr := NewRefreshableRouter()
-
-	uri := args[0]
+	uri := viper.GetString("file")
+	if len(args) == 1 {
+		uri = args[0]
+	}
+	if uri == "" {
+		log.Fatal("invalid blank uri")
+	}
 
 	var err error
 	var data []byte
 	dataType := strings.Trim(strings.ToLower(filepath.Ext(uri)), ".")
-
+	log.Printf("==========================================\nCoooooooooooold Start\n")
 	// Load either from an HTTP URL or from a local file depending on the passed
 	// in value.
 	if strings.HasPrefix(uri, "http") {
@@ -633,6 +640,15 @@ func server(cmd *cobra.Command, args []string) {
 		resp.Body.Close()
 		if err != nil {
 			log.Fatal(err)
+		}
+
+		if viper.GetBool("watch") {
+			log.Fatal("Watching a URL is not supported.")
+		}
+	} else if strings.HasPrefix(uri, "s3://") {
+		data, err = loadSwaggerFromS3(viper.GetString("file"))
+		if err != nil {
+			log.Fatalf("Error loading config from s3 %v", err)
 		}
 
 		if viper.GetBool("watch") {
@@ -727,6 +743,21 @@ func server(cmd *cobra.Command, args []string) {
 		})
 	}
 
+	if strings.HasPrefix(uri, "s3") {
+		http.HandleFunc("/__reload", func(w http.ResponseWriter, r *http.Request) {
+			data, err = loadSwaggerFromS3(viper.GetString("file"))
+			if err != nil {
+				log.Printf("Error loading config from s3 %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte("error while reloading"))
+				return
+			}
+
+			w.WriteHeader(200)
+			w.Write([]byte("reloaded"))
+		})
+	}
+
 	// Add a health check route which returns 200
 	http.HandleFunc("/__health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
@@ -766,15 +797,18 @@ func server(cmd *cobra.Command, args []string) {
 	} else {
 		fmt.Printf("\n")
 	}
-
-	port := fmt.Sprintf(":%d", viper.GetInt("port"))
-	if viper.GetBool("https") {
-		err = http.ListenAndServeTLS(port, viper.GetString("public-key"),
-			viper.GetString("private-key"), nil)
+	if viper.GetBool("lambda") {
+		algnhsa.ListenAndServe(http.DefaultServeMux, nil)
 	} else {
-		err = http.ListenAndServe(port, nil)
-	}
-	if err != nil {
-		log.Fatal(err)
+		port := fmt.Sprintf(":%d", viper.GetInt("port"))
+		if viper.GetBool("https") {
+			err = http.ListenAndServeTLS(port, viper.GetString("public-key"),
+				viper.GetString("private-key"), nil)
+		} else {
+			err = http.ListenAndServe(port, nil)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
